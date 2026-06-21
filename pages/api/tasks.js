@@ -40,39 +40,60 @@ export default async function handler(req, res) {
     }
 
     // 주간 할일 목록 조회
-    if (action === 'list') {
-      const { weekStart, listId: reqListId } = req.body
-      const listId = reqListId || await getListId()
+      
+          if (action === 'list') {
+            const { weekStart, listId: reqListId } = req.body
+            const listId = reqListId || await getListId()
 
-      const startDate = weekStart
-      const endDateObj = new Date(weekStart)
-      endDateObj.setDate(endDateObj.getDate() + 6)
-      const endDate = fromRFC3339(endDateObj.toISOString())
+            // 검색 시작일 (월요일 00:00:00, 한국 표준시 기준 ISO 문자열 만들기)
+            // 시차 문제를 예방하기 위해 구글 API가 지원하는 dueMin, dueMax 파라미터를 씁니다.
+            const startIso = `${weekStart}T00:00:00+09:00` // 한국 시차(+09:00) 명시
+            
+            const endDateObj = new Date(weekStart)
+            endDateObj.setDate(endDateObj.getDate() + 6)
+            const endDate = fromRFC3339(endDateObj.toISOString())
+            const endIso = `${endDate}T23:59:59+09:00`
 
-      const url = new URL(`${TASKS_API}/lists/${listId}/tasks`)
-      url.searchParams.set('showCompleted', 'true')
-      url.searchParams.set('showHidden', 'true')
-      url.searchParams.set('maxResults', '100')
+            const url = new URL(`${TASKS_API}/lists/${listId}/tasks`)
+            url.searchParams.set('showCompleted', 'true')
+            url.searchParams.set('showHidden', 'true')
+            // 구글 서버 단에서 이번 주 일정만 정확히 필터링해서 가져오도록 설정
+            url.searchParams.set('dueMin', startIso)
+            url.searchParams.set('dueMax', endIso)
 
-      const r = await fetch(url.toString(), { headers })
-      const data = await r.json()
+            const r = await fetch(url.toString(), { headers })
+            const data = await r.json()
 
-      const tasks = (data.items || [])
-        .filter((t) => {
-          if (!t.due) return false
-          const due = fromRFC3339(t.due)
-          return due >= startDate && due <= endDate
-        })
-        .map((t) => ({
-          id: t.id,
-          title: t.title,
-          done: t.status === 'completed',
-          date: fromRFC3339(t.due),
-        }))
+            // 구글 API 응답 에러 확인용 로그 (콘솔에서 확인 가능)
+            if (!r.ok) {
+              console.error('Google API Error:', data)
+              return res.status(r.status).json({ error: data.error?.message || '구글 API 오류' })
+            }
 
-      return res.json({ tasks })
-    }
+            const tasks = (data.items || [])
+              .map((t) => {
+                // 구글에서 온 날짜(UTC or KST)를 한국 시간 기준으로 날짜 문자열(YYYY-MM-DD) 추출
+                // 구글 tasks의 t.due는 대개 "2026-06-21T15:00:00.000Z" 형태로 오므로 Local 시간대로 변환 후 잘라야 정확합니다.
+                const localDate = t.due ? new Date(t.due) : null
+                let dateStr = ''
+                if (localDate) {
+                  const offset = localDate.getTimezoneOffset() * 60000;
+                  const dateWithOffset = new Date(localDate.getTime() - offset);
+                  dateStr = dateWithOffset.toISOString().slice(0, 10)
+                }
 
+                return {
+                  id: t.id,
+                  title: t.title,
+                  done: t.status === 'completed',
+                  date: dateStr,
+                }
+              })
+              // 한 번 더 캘린더 날짜 범위에 맞게 안전하게 필터링
+              .filter((t) => t.date >= weekStart && t.date <= endDate)
+
+            return res.json({ tasks })
+          }
     // 할일 추가
     if (action === 'add') {
       const { date, title, listId: reqListId } = req.body
