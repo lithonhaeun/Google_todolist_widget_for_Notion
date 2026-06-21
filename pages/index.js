@@ -61,18 +61,23 @@ export default function Home() {
   // 목록 가져오기 (최초 1회)
   useEffect(() => {
     if (!session) return
-    callApi({ action: 'getLists' }).then((data) => {
-      const lists = data.lists || []
-      setTaskLists(lists)
-      if (lists.length > 0 && !selectedListId) {
-        setSelectedListId(lists[0].id)
+    const fetchLists = async () => {
+      try {
+        const res = await fetch('/api/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'getLists' }),
+        })
+        const data = await res.json()
+        const lists = data.lists || []
+        setTaskLists(lists)
+        if (lists.length > 0) setSelectedListId(lists[0].id)
+      } catch (e) {
+        console.error('getLists error:', e)
       }
-    }).catch((e) => {
-      console.error('getLists error:', e)
-      // 실패해도 기본값으로 진행
-      setSelectedListId('default')
-    })
-  }, [session]) // callApi 의존성 제거해서 재실행 방지
+    }
+    fetchLists()
+  }, [session])
 
   const load = useCallback(async () => {
     if (!session || !selectedListId) return
