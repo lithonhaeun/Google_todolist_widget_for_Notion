@@ -62,10 +62,17 @@ export default function Home() {
   useEffect(() => {
     if (!session) return
     callApi({ action: 'getLists' }).then((data) => {
-      setTaskLists(data.lists || [])
-      if (data.lists?.length > 0) setSelectedListId(data.lists[0].id)
-    }).catch(() => {})
-  }, [session, callApi])
+      const lists = data.lists || []
+      setTaskLists(lists)
+      if (lists.length > 0 && !selectedListId) {
+        setSelectedListId(lists[0].id)
+      }
+    }).catch((e) => {
+      console.error('getLists error:', e)
+      // 실패해도 기본값으로 진행
+      setSelectedListId('default')
+    })
+  }, [session]) // callApi 의존성 제거해서 재실행 방지
 
   const load = useCallback(async () => {
     if (!session || !selectedListId) return
@@ -144,17 +151,19 @@ export default function Home() {
         <span style={styles.weekLabel}>{getWeekLabel()}</span>
         <button style={styles.navBtn} onClick={() => setWeekOffset((o) => o + 1)}>›</button>
         <button style={styles.todayBtn} onClick={() => setWeekOffset(0)}>오늘</button>
-        {taskLists.length > 0 && (
-          <select
-            style={styles.listSelect}
-            value={selectedListId}
-            onChange={(e) => setSelectedListId(e.target.value)}
-          >
-            {taskLists.map((l) => (
+        <select
+          style={styles.listSelect}
+          value={selectedListId}
+          onChange={(e) => setSelectedListId(e.target.value)}
+        >
+          {taskLists.length > 0 ? (
+            taskLists.map((l) => (
               <option key={l.id} value={l.id}>{l.title}</option>
-            ))}
-          </select>
-        )}
+            ))
+          ) : (
+            <option value="">목록 불러오는 중...</option>
+          )}
+        </select>
         <button style={styles.syncBtn} onClick={load} title="새로고침">↻</button>
         <button
           style={styles.logoutBtn}
