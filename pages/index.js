@@ -168,8 +168,7 @@ export default function Home() {
       {error && <div style={styles.err}>{error}</div>}
       {loading && <div style={styles.loadingBar} />}
 
-      {/* 그리드 */}
-      <div className="planner-grid" style={styles.grid}>
+      <div className="planner-grid">
         {DAYS.map((day, i) => {
           const date = getDate(weekStart, i)
           const dt = fmt(date)
@@ -227,26 +226,6 @@ export default function Home() {
           )
         })}
       </div>
-
-      <style>{`
-        .planner-grid {
-          grid-template-columns: repeat(7, 1fr) !important;
-        }
-        @media (max-width: 960px) {
-          .planner-grid { grid-template-columns: repeat(4, 1fr) !important; }
-        }
-        @media (max-width: 640px) {
-          .planner-grid { grid-template-columns: repeat(3, 1fr) !important; }
-          .col-date { display: none; }
-        }
-        @media (max-width: 420px) {
-          .planner-grid { grid-template-columns: repeat(2, 1fr) !important; }
-        }
-        input[type="checkbox"] { accent-color: #FFB6C1; cursor: pointer; }
-        input[type="checkbox"]:disabled { opacity: 0.2; cursor: default; }
-        .task-row button { opacity: 0; transition: opacity 0.15s; }
-        .task-row:hover button { opacity: 1; }
-      `}</style>
     </div>
   )
 }
@@ -276,8 +255,7 @@ const styles = {
   syncBtn: { background: '#fff', border: '0.5px solid #ddd', color: '#aaa', borderRadius: 6, width: 28, height: 28, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   logoutBtn: { background: '#fff', border: '0.5px solid #ddd', color: '#888', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' },
   err: { margin: '0 1rem 0.5rem', padding: '8px 12px', background: '#ffebeb', color: '#e24b4a', borderRadius: 6, fontSize: 12 },
-  loadingBar: { height: 2, background: '#FFB6C1', margin: '0 0 0', animation: 'none', opacity: 0.6 },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderTop: '1px solid #ddd', borderLeft: '1px solid #ddd' },
+  loadingBar: { height: 2, background: '#FFB6C1', opacity: 0.6 },
   column: { borderRight: '1px solid #ddd', borderBottom: '1px solid #ddd', display: 'flex', flexDirection: 'column', background: '#fff' },
   colHeader: { fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.3px', textAlign: 'center', padding: '7px 4px 6px', borderBottom: '1px solid #ddd', whiteSpace: 'nowrap' },
   tasksArea: { flex: 1 },
