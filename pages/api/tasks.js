@@ -42,8 +42,8 @@ export default async function handler(req, res) {
 
     // 주간 할일 목록 조회
     if (action === 'list') {
-      const { weekStart, listId: reqListId } = req.body
-      const listId = reqListId || await getListId()
+      const { weekStart } = req.body
+      const listId = await getListId()
 
       const startDate = weekStart
       const endDateObj = new Date(weekStart)
@@ -76,8 +76,8 @@ export default async function handler(req, res) {
 
     // 할일 추가
     if (action === 'add') {
-      const { date, title, listId: reqListId } = req.body
-      const listId = reqListId || await getListId()
+      const { date, title } = req.body
+      const listId = await getListId()
 
       const r = await fetch(`${TASKS_API}/lists/${listId}/tasks`, {
         method: 'POST',
@@ -94,8 +94,8 @@ export default async function handler(req, res) {
 
     // 완료 토글
     if (action === 'toggle') {
-      const { id, done, listId: reqListId } = req.body
-      const listId = reqListId || await getListId()
+      const { id, done } = req.body
+      const listId = await getListId()
 
       const r = await fetch(`${TASKS_API}/lists/${listId}/tasks/${id}`, {
         method: 'PATCH',
@@ -110,8 +110,8 @@ export default async function handler(req, res) {
 
     // 할일 삭제
     if (action === 'delete') {
-      const { id, listId: reqListId } = req.body
-      const listId = reqListId || await getListId()
+      const { id } = req.body
+      const listId = await getListId()
 
       await fetch(`${TASKS_API}/lists/${listId}/tasks/${id}`, {
         method: 'DELETE',

@@ -33,8 +33,6 @@ export default function Home() {
   const [inputs, setInputs] = useState({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [taskLists, setTaskLists] = useState([])
-  const [selectedListId, setSelectedListId] = useState('')
 
   const weekStart = getWeekStart(weekOffset)
 
@@ -58,40 +56,19 @@ export default function Home() {
     return data
   }, [])
 
-  // 목록 가져오기 (최초 1회)
-  useEffect(() => {
-    if (!session) return
-    const fetchLists = async () => {
-      try {
-        const res = await fetch('/api/tasks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'getLists' }),
-        })
-        const data = await res.json()
-        const lists = data.lists || []
-        setTaskLists(lists)
-        if (lists.length > 0) setSelectedListId(lists[0].id)
-      } catch (e) {
-        console.error('getLists error:', e)
-      }
-    }
-    fetchLists()
-  }, [session])
-
   const load = useCallback(async () => {
-    if (!session || !selectedListId) return
+    if (!session) return
     setLoading(true)
     setError('')
     try {
-      const data = await callApi({ action: 'list', weekStart: fmt(weekStart), listId: selectedListId })
+      const data = await callApi({ action: 'list', weekStart: fmt(weekStart) })
       setTasks(data.tasks)
     } catch (e) {
       setError('불러오기 실패: ' + e.message)
     } finally {
       setLoading(false)
     }
-  }, [session, weekStart, callApi, selectedListId])
+  }, [session, weekStart, callApi])
 
   useEffect(() => {
     load()
@@ -102,7 +79,7 @@ export default function Home() {
     if (!title) return
     setInputs((prev) => ({ ...prev, [dt]: '' }))
     try {
-      await callApi({ action: 'add', date: dt, title, listId: selectedListId })
+      await callApi({ action: 'add', date: dt, title })
       load()
     } catch (e) {
       setError('추가 실패: ' + e.message)
@@ -111,7 +88,7 @@ export default function Home() {
 
   const handleToggle = async (id, done) => {
     try {
-      await callApi({ action: 'toggle', id, done, listId: selectedListId })
+      await callApi({ action: 'toggle', id, done })
       load()
     } catch (e) {
       setError('업데이트 실패: ' + e.message)
@@ -120,7 +97,7 @@ export default function Home() {
 
   const handleDelete = async (id) => {
     try {
-      await callApi({ action: 'delete', id, listId: selectedListId })
+      await callApi({ action: 'delete', id })
       load()
     } catch (e) {
       setError('삭제 실패: ' + e.message)
@@ -156,19 +133,6 @@ export default function Home() {
         <span style={styles.weekLabel}>{getWeekLabel()}</span>
         <button style={styles.navBtn} onClick={() => setWeekOffset((o) => o + 1)}>›</button>
         <button style={styles.todayBtn} onClick={() => setWeekOffset(0)}>오늘</button>
-        <select
-          style={styles.listSelect}
-          value={selectedListId}
-          onChange={(e) => setSelectedListId(e.target.value)}
-        >
-          {taskLists.length > 0 ? (
-            taskLists.map((l) => (
-              <option key={l.id} value={l.id}>{l.title}</option>
-            ))
-          ) : (
-            <option value="">목록 불러오는 중...</option>
-          )}
-        </select>
         <button style={styles.syncBtn} onClick={load} title="새로고침">↻</button>
         <button
           style={styles.logoutBtn}
