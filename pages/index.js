@@ -1,4 +1,3 @@
-import { useSession, signOut } from 'next-auth/react'
 import { useState, useEffect, useCallback } from 'react'
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
@@ -27,12 +26,40 @@ const fmt = (d) =>
 const todayStr = () => fmt(new Date())
 
 export default function Home() {
-  const { data: session, status } = useSession()
+  const [authToken, setAuthToken] = useState(null) // {accessToken, refreshToken}
+  const [authReady, setAuthReady] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0)
   const [tasks, setTasks] = useState([])
   const [inputs, setInputs] = useState({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [manualCode, setManualCode] = useState('')
+
+  // 토큰 로드 (localStorage + postMessage 수신)
+  useEffect(() => {
+    // 1) localStorage에서 복원
+    try {
+      const saved = localStorage.getItem('gtask_token')
+      if (saved) {
+        const decoded = JSON.parse(atob(saved))
+        setAuthToken(decoded)
+      }
+    } catch (e) {}
+    setAuthReady(true)
+
+    // 2) 새 탭(connected 페이지)에서 postMessage로 토큰 받기
+    const onMessage = (ev) => {
+      if (ev.data?.type === 'GTASK_TOKEN' && ev.data.payload) {
+        try {
+          const decoded = JSON.parse(atob(ev.data.payload))
+          setAuthToken(decoded)
+          localStorage.setItem('gtask_token', ev.data.payload)
+        } catch (e) {}
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
 
   const weekStartStr = fmt(getWeekStart(weekOffset))
 
@@ -46,18 +73,30 @@ export default function Home() {
   }
 
   const callApi = useCallback(async (body) => {
+    if (!authToken) throw new Error('로그인이 필요합니다.')
     const res = await fetch('/api/tasks', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken.accessToken}`,
+        ...(authToken.refreshToken ? { 'x-refresh-token': authToken.refreshToken } : {}),
+      },
       body: JSON.stringify(body),
     })
+    // 새 access token이 내려오면 갱신
+    const newToken = res.headers.get('x-new-access-token')
+    if (newToken) {
+      const updated = { ...authToken, accessToken: newToken }
+      setAuthToken(updated)
+      try { localStorage.setItem('gtask_token', btoa(JSON.stringify(updated))) } catch (e) {}
+    }
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '요청 실패')
     return data
-  }, [])
+  }, [authToken])
 
   const load = useCallback(async () => {
-    if (!session) return
+    if (!authToken) return
     setLoading(true)
     setError('')
     try {
@@ -68,25 +107,26 @@ export default function Home() {
     } finally {
       setLoading(false)
     }
-  }, [session, weekStartStr, callApi])
+  }, [authToken, weekStartStr, callApi])
 
   useEffect(() => {
     load()
   }, [load])
 
-  // 로그인 안 된 상태에서 세션 확인 (새 탭 로그인 자동 감지)
+  // 로그인 안 된 상태에서 localStorage 토큰 확인 (새 탭 로그인 자동 감지)
   useEffect(() => {
-    if (session) return
+    if (authToken) return
     const timer = setInterval(() => {
-      fetch('/api/auth/session')
-        .then((r) => r.json())
-        .then((s) => {
-          if (s && s.user) window.location.reload()
-        })
-        .catch(() => {})
-    }, 2000)
+      try {
+        const saved = localStorage.getItem('gtask_token')
+        if (saved) {
+          const decoded = JSON.parse(atob(saved))
+          setAuthToken(decoded)
+        }
+      } catch (e) {}
+    }, 1500)
     return () => clearInterval(timer)
-  }, [session])
+  }, [authToken])
 
   const handleAdd = async (dt) => {
     const title = inputs[dt]?.trim()
@@ -118,15 +158,27 @@ export default function Home() {
     }
   }
 
-  if (status === 'loading') {
+  if (!authReady) {
     return <div style={styles.center}>로딩 중...</div>
   }
 
-  if (!session) {
+  if (!authToken) {
     const handleLogin = () => {
-      // 구글은 iframe 안 OAuth를 차단하므로 새 탭에서 로그인
       const origin = typeof window !== 'undefined' ? window.location.origin : ''
       window.open(origin + '/api/auth/signin', '_blank', 'noopener,noreferrer')
+    }
+    const applyManualCode = () => {
+      const code = manualCode.trim()
+      if (!code) return
+      try {
+        const decoded = JSON.parse(atob(code))
+        if (!decoded.accessToken) throw new Error('invalid')
+        setAuthToken(decoded)
+        localStorage.setItem('gtask_token', code)
+        setError('')
+      } catch (e) {
+        setError('코드가 올바르지 않습니다.')
+      }
     }
     return (
       <div style={styles.loginWrap}>
@@ -138,8 +190,19 @@ export default function Home() {
             Google로 로그인
           </button>
           <div style={styles.loginHint}>
-            새 탭에서 로그인하면<br />자동으로 연결됩니다
+            새 탭에서 로그인하면 자동 연결됩니다.<br />
+            연결이 안 되면 새 탭에서 받은 코드를<br />아래에 붙여넣으세요.
           </div>
+          <input
+            style={styles.codeInput}
+            placeholder="연결 코드 붙여넣기"
+            value={manualCode}
+            onChange={(e) => setManualCode(e.target.value)}
+          />
+          <button style={styles.refreshBtn} onClick={applyManualCode}>
+            코드로 연결
+          </button>
+          {error && <div style={{ ...styles.err, marginTop: 10 }}>{error}</div>}
         </div>
       </div>
     )
@@ -158,10 +221,13 @@ export default function Home() {
         <button style={styles.syncBtn} onClick={load} title="새로고침">↻</button>
         <button
           style={styles.logoutBtn}
-          onClick={() => signOut()}
-          title={session.user?.email}
+          onClick={() => {
+            try { localStorage.removeItem('gtask_token') } catch (e) {}
+            setAuthToken(null)
+            setTasks([])
+          }}
         >
-          {session.user?.name?.split(' ')[0] || '로그아웃'}
+          로그아웃
         </button>
       </div>
 
@@ -248,6 +314,7 @@ const styles = {
   loginSub: { fontSize: 13, color: '#999', marginBottom: 28 },
   loginBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, background: '#fff', border: '0.5px solid #ddd', borderRadius: 8, padding: '10px 24px', fontSize: 14, color: '#444', cursor: 'pointer', transition: 'background 0.2s', width: '100%' },
   loginHint: { fontSize: 11, color: '#aaa', marginTop: 18, lineHeight: 1.5 },
+  codeInput: { width: '100%', marginTop: 14, padding: '8px 10px', fontSize: 11, border: '0.5px solid #ddd', borderRadius: 6, outline: 'none', color: '#666' },
   refreshBtn: { marginTop: 12, background: '#FFB6C1', border: 'none', color: '#fff', borderRadius: 8, padding: '9px 20px', fontSize: 13, cursor: 'pointer', width: '100%', fontWeight: 500 },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0.9rem 1rem', flexWrap: 'wrap' },
   navBtn: { background: '#fff', border: '0.5px solid #FFB6C1', color: '#FFB6C1', borderRadius: 6, width: 32, height: 32, fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },

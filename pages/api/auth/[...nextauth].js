@@ -22,7 +22,6 @@ export const authOptions = {
         token.refreshToken = account.refresh_token
         token.expiresAt = account.expires_at
       }
-      // 토큰 만료 시 갱신
       if (Date.now() < token.expiresAt * 1000) {
         return token
       }
@@ -30,8 +29,13 @@ export const authOptions = {
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken
+      session.refreshToken = token.refreshToken
       session.error = token.error
       return session
+    },
+    async redirect({ url, baseUrl }) {
+      // 로그인 후 항상 /connected 페이지로 (토큰 전달용)
+      return `${baseUrl}/connected`
     },
   },
   // iframe(노션) 안에서도 쿠키가 작동하도록 SameSite=None 설정

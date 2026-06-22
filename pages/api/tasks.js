@@ -9,13 +9,60 @@ const toRFC3339 = (dateStr) => `${dateStr}T00:00:00.000Z`
 // RFC3339 → YYYY-MM-DD
 const fromRFC3339 = (rfc) => rfc?.slice(0, 10)
 
+// 만료된 access token을 refresh token으로 갱신
+async function refreshGoogleToken(refreshToken) {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'token refresh failed')
+  return data.access_token
+}
+
 export default async function handler(req, res) {
-  const session = await getServerSession(req, res, authOptions)
-  if (!session?.accessToken) {
+  let token = null
+
+  // 1) Authorization 헤더의 토큰 우선 (데스크톱 앱/iframe용)
+  const authHeader = req.headers.authorization
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7)
+
+    // 헤더로 refresh token도 같이 보내면, 401 시 갱신용으로 사용
+    const refreshToken = req.headers['x-refresh-token']
+
+    // 토큰 유효성 간단 체크 후 만료면 갱신
+    if (refreshToken) {
+      const testRes = await fetch(`${TASKS_API}/users/@me/lists`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (testRes.status === 401) {
+        try {
+          token = await refreshGoogleToken(refreshToken)
+          res.setHeader('x-new-access-token', token) // 새 토큰을 클라에 전달
+        } catch (e) {
+          return res.status(401).json({ error: '토큰 갱신 실패. 다시 로그인해주세요.' })
+        }
+      }
+    }
+  }
+
+  // 2) 헤더 토큰이 없으면 쿠키 세션 사용 (웹용)
+  if (!token) {
+    const session = await getServerSession(req, res, authOptions)
+    token = session?.accessToken
+  }
+
+  if (!token) {
     return res.status(401).json({ error: '로그인이 필요합니다.' })
   }
 
-  const token = session.accessToken
   const headers = {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
@@ -25,7 +72,6 @@ export default async function handler(req, res) {
   const getListId = async () => {
     const r = await fetch(`${TASKS_API}/users/@me/lists`, { headers })
     const data = await r.json()
-    console.log('getListId - lists response:', JSON.stringify(data))
     return data.items?.[0]?.id
   }
 
