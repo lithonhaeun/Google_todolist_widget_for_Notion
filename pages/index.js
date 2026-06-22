@@ -1,4 +1,4 @@
-import { useSession, signOut } from 'next-auth/react'
+import { useSession, signIn, signOut } from 'next-auth/react'
 import { useState, useEffect, useCallback } from 'react'
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
@@ -74,20 +74,6 @@ export default function Home() {
     load()
   }, [load])
 
-  // 로그인 안 된 상태에서 주기적으로 세션 확인 (새 탭 로그인 감지)
-  useEffect(() => {
-    if (session) return
-    const timer = setInterval(() => {
-      fetch('/api/auth/session')
-        .then((r) => r.json())
-        .then((s) => {
-          if (s && s.user) window.location.reload()
-        })
-        .catch(() => {})
-    }, 3000)
-    return () => clearInterval(timer)
-  }, [session])
-
   const handleAdd = async (dt) => {
     const title = inputs[dt]?.trim()
     if (!title) return
@@ -123,26 +109,14 @@ export default function Home() {
   }
 
   if (!session) {
-    const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
-    const handleLogin = () => {
-      // iframe(노션) 안에서는 새 탭에서 로그인
-      window.open(appUrl + '/api/auth/signin', '_blank', 'noopener,noreferrer')
-    }
     return (
       <div style={styles.loginWrap}>
         <div style={styles.loginCard}>
           <div style={styles.loginTitle}>주간 플래너</div>
           <div style={styles.loginSub}>구글 캘린더 할일과 연동됩니다</div>
-          <button style={styles.loginBtn} onClick={handleLogin}>
+          <button style={styles.loginBtn} onClick={() => signIn('google')}>
             <GoogleIcon />
             Google로 로그인
-          </button>
-          <div style={styles.loginHint}>
-            새 탭에서 로그인 후, 이 화면으로 돌아와
-            <br />아래 버튼을 눌러주세요.
-          </div>
-          <button style={styles.refreshBtn} onClick={() => window.location.reload()}>
-            로그인 완료 → 새로고침
           </button>
         </div>
       </div>
