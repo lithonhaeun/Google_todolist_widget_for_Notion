@@ -25,6 +25,7 @@ export default async function handler(req, res) {
   const getListId = async () => {
     const r = await fetch(`${TASKS_API}/users/@me/lists`, { headers })
     const data = await r.json()
+    console.log('getListId - lists response:', JSON.stringify(data))
     return data.items?.[0]?.id
   }
 
@@ -78,6 +79,7 @@ export default async function handler(req, res) {
     if (action === 'add') {
       const { date, title } = req.body
       const listId = await getListId()
+      console.log('add - listId:', listId, 'date:', date, 'title:', title)
 
       const r = await fetch(`${TASKS_API}/lists/${listId}/tasks`, {
         method: 'POST',
@@ -89,6 +91,10 @@ export default async function handler(req, res) {
         }),
       })
       const data = await r.json()
+      console.log('add - google response:', JSON.stringify(data))
+      if (!r.ok) {
+        return res.status(r.status).json({ error: data.error?.message || 'add 실패', detail: data })
+      }
       return res.json({ id: data.id })
     }
 
