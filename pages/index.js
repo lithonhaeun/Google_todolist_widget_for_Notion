@@ -1,4 +1,4 @@
-import { useSession, signIn, signOut } from 'next-auth/react'
+import { useSession, signOut } from 'next-auth/react'
 import { useState, useEffect, useCallback } from 'react'
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
@@ -74,6 +74,20 @@ export default function Home() {
     load()
   }, [load])
 
+  // 로그인 안 된 상태에서 주기적으로 세션 확인 (새 탭 로그인 감지)
+  useEffect(() => {
+    if (session) return
+    const timer = setInterval(() => {
+      fetch('/api/auth/session')
+        .then((r) => r.json())
+        .then((s) => {
+          if (s && s.user) window.location.reload()
+        })
+        .catch(() => {})
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [session])
+
   const handleAdd = async (dt) => {
     const title = inputs[dt]?.trim()
     if (!title) return
@@ -109,14 +123,26 @@ export default function Home() {
   }
 
   if (!session) {
+    const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
+    const handleLogin = () => {
+      // iframe(노션) 안에서는 새 탭에서 로그인
+      window.open(appUrl + '/api/auth/signin', '_blank', 'noopener,noreferrer')
+    }
     return (
       <div style={styles.loginWrap}>
         <div style={styles.loginCard}>
           <div style={styles.loginTitle}>주간 플래너</div>
           <div style={styles.loginSub}>구글 캘린더 할일과 연동됩니다</div>
-          <button style={styles.loginBtn} onClick={() => signIn('google')}>
+          <button style={styles.loginBtn} onClick={handleLogin}>
             <GoogleIcon />
             Google로 로그인
+          </button>
+          <div style={styles.loginHint}>
+            새 탭에서 로그인 후, 이 화면으로 돌아와
+            <br />아래 버튼을 눌러주세요.
+          </div>
+          <button style={styles.refreshBtn} onClick={() => window.location.reload()}>
+            로그인 완료 → 새로고침
           </button>
         </div>
       </div>
@@ -225,6 +251,8 @@ const styles = {
   loginTitle: { fontSize: 22, fontWeight: 600, color: '#333', marginBottom: 8 },
   loginSub: { fontSize: 13, color: '#999', marginBottom: 28 },
   loginBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0, background: '#fff', border: '0.5px solid #ddd', borderRadius: 8, padding: '10px 24px', fontSize: 14, color: '#444', cursor: 'pointer', transition: 'background 0.2s', width: '100%' },
+  loginHint: { fontSize: 11, color: '#aaa', marginTop: 18, lineHeight: 1.5 },
+  refreshBtn: { marginTop: 12, background: '#FFB6C1', border: 'none', color: '#fff', borderRadius: 8, padding: '9px 20px', fontSize: 13, cursor: 'pointer', width: '100%', fontWeight: 500 },
   topbar: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0.9rem 1rem', flexWrap: 'wrap' },
   navBtn: { background: '#fff', border: '0.5px solid #FFB6C1', color: '#FFB6C1', borderRadius: 6, width: 32, height: 32, fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   weekLabel: { fontSize: 13, fontWeight: 500, color: '#555', minWidth: 180, textAlign: 'center' },
