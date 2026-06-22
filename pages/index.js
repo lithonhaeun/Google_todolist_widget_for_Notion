@@ -34,11 +34,11 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const weekStart = getWeekStart(weekOffset)
+  const weekStartStr = fmt(getWeekStart(weekOffset))
 
   const getWeekLabel = () => {
-    const s = weekStart
-    const e = getDate(weekStart, 6)
+    const s = getWeekStart(weekOffset)
+    const e = getDate(s, 6)
     return (
       `${s.getMonth() + 1}월 ${s.getDate()}일 ~ ${e.getMonth() + 1}월 ${e.getDate()}일` +
       (weekOffset === 0 ? ' (이번 주)' : '')
@@ -61,14 +61,14 @@ export default function Home() {
     setLoading(true)
     setError('')
     try {
-      const data = await callApi({ action: 'list', weekStart: fmt(weekStart) })
+      const data = await callApi({ action: 'list', weekStart: weekStartStr })
       setTasks(data.tasks)
     } catch (e) {
       setError('불러오기 실패: ' + e.message)
     } finally {
       setLoading(false)
     }
-  }, [session, weekStart, callApi])
+  }, [session, weekStartStr, callApi])
 
   useEffect(() => {
     load()
@@ -148,7 +148,7 @@ export default function Home() {
 
       <div className="planner-grid">
         {DAYS.map((day, i) => {
-          const date = getDate(weekStart, i)
+          const date = getDate(getWeekStart(weekOffset), i)
           const dt = fmt(date)
           const isToday = dt === today
           const isSat = i === 5
