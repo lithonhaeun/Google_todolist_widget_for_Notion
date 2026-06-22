@@ -33,10 +33,16 @@ export default async function handler(req, res) {
 
     // 목록(Task List) 전체 조회
     if (action === 'getLists') {
-      const r = await fetch(`${TASKS_API}/users/@me/lists`, { headers })
-      const data = await r.json()
-      const lists = (data.items || []).map((l) => ({ id: l.id, title: l.title }))
-      return res.json({ lists })
+        const r = await fetch(`${TASKS_API}/users/@me/lists`, { headers })
+              const data = await r.json()
+              
+              // 에러 로그 출력 (터미널에서 확인 가능)
+              if (!r.ok) {
+                console.log('🔥 구글 API 에러:', data)
+              }
+
+              const lists = (data.items || []).map((l) => ({ id: l.id, title: l.title }))
+              return res.json({ lists })
     }
 
     // 주간 할일 목록 조회
