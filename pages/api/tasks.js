@@ -33,11 +33,9 @@ export default async function handler(req, res) {
   const authHeader = req.headers.authorization
   if (authHeader?.startsWith('Bearer ')) {
     token = authHeader.slice(7)
-
-    // 헤더로 refresh token도 같이 보내면, 401 시 갱신용으로 사용
     const refreshToken = req.headers['x-refresh-token']
 
-    // 토큰 유효성 간단 체크 후 만료면 갱신
+    // 토큰 만료 시 갱신
     if (refreshToken) {
       const testRes = await fetch(`${TASKS_API}/users/@me/lists`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -45,7 +43,7 @@ export default async function handler(req, res) {
       if (testRes.status === 401) {
         try {
           token = await refreshGoogleToken(refreshToken)
-          res.setHeader('x-new-access-token', token) // 새 토큰을 클라에 전달
+          res.setHeader('x-new-access-token', token)
         } catch (e) {
           return res.status(401).json({ error: '토큰 갱신 실패. 다시 로그인해주세요.' })
         }
@@ -68,117 +66,164 @@ export default async function handler(req, res) {
     'Content-Type': 'application/json',
   }
 
-  // 기본 태스크 목록 ID 가져오기
-  const getListId = async () => {
+  // 모든 목록(Task List) 가져오기
+  const getAllLists = async () => {
     const r = await fetch(`${TASKS_API}/users/@me/lists`, { headers })
     const data = await r.json()
-    return data
+    return data.items || []
+  }
+
+  // 기본 목록 ID (첫 번째 목록)
+  const getDefaultListId = async () => {
+    const lists = await getAllLists()
+    return lists[0]?.id
   }
 
   try {
     const { action } = req.body || req.query
 
-    // 목록(Task List) 전체 조회
+    // 목록 전체 조회
     if (action === 'getLists') {
-      const r = await fetch(`${TASKS_API}/users/@me/lists`, { headers })
-      const data = await r.json()
-      console.log('getLists raw response:', JSON.stringify(data))
-      const lists = (data.items || []).map((l) => ({ id: l.id, title: l.title }))
-      return res.json({ lists })
+      const lists = await getAllLists()
+      return res.json({ lists: lists.map((l) => ({ id: l.id, title: l.title })) })
     }
 
-    // 주간 할일 목록 조회
+    // 주간 할일 조회 — 특정 목록 또는 전체 목록
     if (action === 'list') {
-      const { weekStart } = req.body
-      const listId = await getListId()
+      const { weekStart, listId } = req.body
 
       const startDate = weekStart
       const endDateObj = new Date(weekStart)
       endDateObj.setDate(endDateObj.getDate() + 6)
       const endDate = fromRFC3339(endDateObj.toISOString())
 
-      for(id : listId)
-      const url = new URL(`${TASKS_API}/lists/${listId.id}/tasks`)
-      url.searchParams.set('showCompleted', 'true')
-      url.searchParams.set('showHidden', 'true')
-      url.searchParams.set('maxResults', '100')
+      // listId가 'all'이거나 없으면 전체 목록, 아니면 해당 목록만
+      let targetLists = []
+      if (!listId || listId === 'all') {
+        targetLists = await getAllLists()
+      } else {
+        targetLists = [{ id: listId }]
+      }
 
-      const r = await fetch(url.toString(), { headers })
-      const data = await r.json()
+      let allTasks = []
+      for (const list of targetLists) {
+        const url = new URL(`${TASKS_API}/lists/${list.id}/tasks`)
+        url.searchParams.set('showCompleted', 'true')
+        url.searchParams.set('showHidden', 'true')
+        url.searchParams.set('maxResults', '100')
 
-      const tasks = (data.items || [])
-        .filter((t) => {
-          if (!t.due) return false
-          const due = fromRFC3339(t.due)
-          return due >= startDate && due <= endDate
-        })
-        .map((t) => ({
-          id: t.id,
-          title: t.title,
-          done: t.status === 'completed',
-          date: fromRFC3339(t.due),
-        }))
+        const r = await fetch(url.toString(), { headers })
+        const data = await r.json()
 
-      return res.json({ tasks })
+        const tasks = (data.items || [])
+          .filter((t) => {
+            if (!t.due) return false
+            const due = fromRFC3339(t.due)
+            return due >= startDate && due <= endDate
+          })
+          .map((t) => ({
+            id: t.id,
+            listId: list.id, // 수정/삭제 시 필요
+            title: t.title,
+            done: t.status === 'completed',
+            date: fromRFC3339(t.due),
+          }))
+
+        allTasks = [...allTasks, ...tasks]
+      }
+
+      return res.json({ tasks: allTasks })
     }
 
     // 할일 추가
-    // 주간 할일 목록 조회
-if (action === 'list') {
-  const { weekStart } = req.body
-  const listsData = await getListId() // 수정하신 대로 data 전체를 반환한다고 가정
+    if (action === 'add') {
+      const { date, title, listId } = req.body
+      const targetListId = listId && listId !== 'all' ? listId : await getDefaultListId()
 
-  const startDate = weekStart
-  const endDateObj = new Date(weekStart)
-  endDateObj.setDate(endDateObj.getDate() + 6)
-  const endDate = fromRFC3339(endDateObj.toISOString())
-
-  // 1. 모든 할 일을 모아둘 빈 배열을 준비합니다.
-  let allTasks = []
-
-  // 2. 자바스크립트의 for...of 문법을 사용해 목록을 하나씩 순회합니다.
-  for (const list of listsData.items || []) {
-    const url = new URL(`${TASKS_API}/lists/${list.id}/tasks`)
-    url.searchParams.set('showCompleted', 'true')
-    url.searchParams.set('showHidden', 'true')
-    url.searchParams.set('maxResults', '100')
-
-    const r = await fetch(url.toString(), { headers })
-    const data = await r.json()
-
-    // 3. 이번 주 날짜에 맞게 필터링
-    const tasks = (data.items || [])
-      .filter((t) => {
-        if (!t.due) return false
-        const due = fromRFC3339(t.due)
-        return due >= startDate && due <= endDate
+      const r = await fetch(`${TASKS_API}/lists/${targetListId}/tasks`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title,
+          due: toRFC3339(date),
+          status: 'needsAction',
+        }),
       })
-      .map((t) => ({
-        id: t.id,
-        listId: list.id, // 🔥 핵심! 나중에 수정/삭제를 위해 목록 ID를 꼭 끼워넣어 줍니다.
-        title: t.title,
-        done: t.status === 'completed',
-        date: fromRFC3339(t.due),
-      }))
+      const data = await r.json()
+      if (!r.ok) {
+        return res.status(r.status).json({ error: data.error?.message || 'add 실패' })
+      }
+      return res.json({ id: data.id })
+    }
 
-    // 4. 모아둔 배열에 방금 가져온 할 일들을 추가합니다.
-    allTasks = [...allTasks, ...tasks]
-  }
+    // 완료 토글
+    if (action === 'toggle') {
+      const { id, done, listId } = req.body
+      const targetListId = listId || await getDefaultListId()
 
-  // 5. 합쳐진 전체 할 일을 반환합니다.
-  return res.json({ tasks: allTasks })
-}
+      const r = await fetch(`${TASKS_API}/lists/${targetListId}/tasks/${id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          status: done ? 'needsAction' : 'completed',
+        }),
+      })
+      const data = await r.json()
+      return res.json({ ok: true, status: data.status })
+    }
 
     // 할일 삭제
     if (action === 'delete') {
-      const { id } = req.body
-      const listId = await getListId()
+      const { id, listId } = req.body
+      const targetListId = listId || await getDefaultListId()
 
-      await fetch(`${TASKS_API}/lists/${listId}/tasks/${id}`, {
+      await fetch(`${TASKS_API}/lists/${targetListId}/tasks/${id}`, {
         method: 'DELETE',
         headers,
       })
       return res.json({ ok: true })
+    }
+
+    // 할일을 다른 목록으로 이동 (Tasks API는 이동 미지원 → 삭제 후 재생성)
+    if (action === 'move') {
+      const { id, fromListId, toListId } = req.body
+      if (!fromListId || !toListId) {
+        return res.status(400).json({ error: '목록 정보가 부족합니다.' })
+      }
+      if (fromListId === toListId) {
+        return res.json({ ok: true }) // 같은 목록이면 변화 없음
+      }
+
+      // 1) 기존 할일 정보 읽기
+      const getR = await fetch(`${TASKS_API}/lists/${fromListId}/tasks/${id}`, { headers })
+      const original = await getR.json()
+      if (!getR.ok) {
+        return res.status(getR.status).json({ error: '원본 할일을 찾을 수 없습니다.' })
+      }
+
+      // 2) 새 목록에 동일 내용으로 생성
+      const createR = await fetch(`${TASKS_API}/lists/${toListId}/tasks`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title: original.title,
+          due: original.due,
+          notes: original.notes,
+          status: original.status,
+        }),
+      })
+      const created = await createR.json()
+      if (!createR.ok) {
+        return res.status(createR.status).json({ error: '새 목록 생성 실패' })
+      }
+
+      // 3) 기존 목록에서 삭제
+      await fetch(`${TASKS_API}/lists/${fromListId}/tasks/${id}`, {
+        method: 'DELETE',
+        headers,
+      })
+
+      return res.json({ ok: true, newId: created.id })
     }
 
     return res.status(400).json({ error: '알 수 없는 액션입니다.' })

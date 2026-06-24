@@ -34,6 +34,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [manualCode, setManualCode] = useState('')
+  const [taskLists, setTaskLists] = useState([]) // [{id, title}]
+  const [selectedListId, setSelectedListId] = useState('all') // 'all' = 전체
+  const [showListMenu, setShowListMenu] = useState(false)
+  const [openTagMenu, setOpenTagMenu] = useState(null) // 태그 메뉴 열린 할일 id
 
   // 토큰 로드 (localStorage + postMessage 수신)
   useEffect(() => {
@@ -100,18 +104,26 @@ export default function Home() {
     setLoading(true)
     setError('')
     try {
-      const data = await callApi({ action: 'list', weekStart: weekStartStr })
+      const data = await callApi({ action: 'list', weekStart: weekStartStr, listId: selectedListId })
       setTasks(data.tasks)
     } catch (e) {
       setError('불러오기 실패: ' + e.message)
     } finally {
       setLoading(false)
     }
-  }, [authToken, weekStartStr, callApi])
+  }, [authToken, weekStartStr, callApi, selectedListId])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // 목록 불러오기 (로그인 후 1회)
+  useEffect(() => {
+    if (!authToken) return
+    callApi({ action: 'getLists' })
+      .then((data) => setTaskLists(data.lists || []))
+      .catch(() => {})
+  }, [authToken, callApi])
 
   // 로그인 안 된 상태에서 localStorage 토큰 확인 (새 탭 로그인 자동 감지)
   useEffect(() => {
@@ -133,28 +145,41 @@ export default function Home() {
     if (!title) return
     setInputs((prev) => ({ ...prev, [dt]: '' }))
     try {
-      await callApi({ action: 'add', date: dt, title })
+      // '전체' 보기면 listId 없이(기본 목록), 특정 목록이면 그 목록에 추가
+      const listId = selectedListId === 'all' ? undefined : selectedListId
+      await callApi({ action: 'add', date: dt, title, listId })
       load()
     } catch (e) {
       setError('추가 실패: ' + e.message)
     }
   }
 
-  const handleToggle = async (id, done) => {
+  const handleToggle = async (task) => {
     try {
-      await callApi({ action: 'toggle', id, done })
+      await callApi({ action: 'toggle', id: task.id, done: task.done, listId: task.listId })
       load()
     } catch (e) {
       setError('업데이트 실패: ' + e.message)
     }
   }
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (task) => {
     try {
-      await callApi({ action: 'delete', id })
+      await callApi({ action: 'delete', id: task.id, listId: task.listId })
       load()
     } catch (e) {
       setError('삭제 실패: ' + e.message)
+    }
+  }
+
+  const handleMove = async (task, toListId) => {
+    setOpenTagMenu(null)
+    if (task.listId === toListId) return
+    try {
+      await callApi({ action: 'move', id: task.id, fromListId: task.listId, toListId })
+      load()
+    } catch (e) {
+      setError('목록 변경 실패: ' + e.message)
     }
   }
 
@@ -218,6 +243,46 @@ export default function Home() {
         <span style={styles.weekLabel}>{getWeekLabel()}</span>
         <button style={styles.navBtn} onClick={() => setWeekOffset((o) => o + 1)}>›</button>
         <button style={styles.todayBtn} onClick={() => setWeekOffset(0)}>오늘</button>
+
+        {/* 목록 선택 칩 */}
+        <div style={styles.listChipWrap}>
+          <button
+            style={styles.listChip}
+            onClick={() => setShowListMenu((v) => !v)}
+            title="목록 선택"
+          >
+            {selectedListId === 'all'
+              ? '전체'
+              : (taskLists.find((l) => l.id === selectedListId)?.title || '목록')}
+            <span style={styles.chipArrow}>▾</span>
+          </button>
+          {showListMenu && (
+            <div style={styles.listMenu}>
+              <button
+                style={{
+                  ...styles.listMenuItem,
+                  ...(selectedListId === 'all' ? styles.listMenuItemActive : {}),
+                }}
+                onClick={() => { setSelectedListId('all'); setShowListMenu(false) }}
+              >
+                전체
+              </button>
+              {taskLists.map((l) => (
+                <button
+                  key={l.id}
+                  style={{
+                    ...styles.listMenuItem,
+                    ...(selectedListId === l.id ? styles.listMenuItemActive : {}),
+                  }}
+                  onClick={() => { setSelectedListId(l.id); setShowListMenu(false) }}
+                >
+                  {l.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <button style={styles.syncBtn} onClick={load} title="새로고침">↻</button>
         <button
           style={styles.logoutBtn}
@@ -254,6 +319,9 @@ export default function Home() {
               <div style={styles.tasksArea}>
                 {Array.from({ length: ROWS }).map((_, j) => {
                   const task = dayTasks[j] || null
+                  const listTitle = task && selectedListId === 'all'
+                    ? taskLists.find((l) => l.id === task.listId)?.title
+                    : null
                   return (
                     <div key={j} style={styles.row} className="task-row">
                       <input
@@ -261,15 +329,42 @@ export default function Home() {
                         style={styles.check}
                         checked={task?.done || false}
                         disabled={!task}
-                        onChange={() => task && handleToggle(task.id, task.done)}
+                        onChange={() => task && handleToggle(task)}
                       />
                       <div style={styles.line}>
                         <span style={{ ...styles.text, ...(task?.done ? styles.textDone : {}) }}>
                           {task?.title || ''}
                         </span>
                       </div>
+                      {listTitle && (
+                        <div style={styles.tagWrap}>
+                          <button
+                            style={styles.listTag}
+                            title="목록 변경"
+                            onClick={() => setOpenTagMenu(openTagMenu === task.id ? null : task.id)}
+                          >
+                            #{listTitle}
+                          </button>
+                          {openTagMenu === task.id && (
+                            <div style={styles.tagMenu}>
+                              {taskLists.map((l) => (
+                                <button
+                                  key={l.id}
+                                  style={{
+                                    ...styles.tagMenuItem,
+                                    ...(l.id === task.listId ? styles.tagMenuItemActive : {}),
+                                  }}
+                                  onClick={() => handleMove(task, l.id)}
+                                >
+                                  {l.title}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {task && (
-                        <button style={styles.del} onClick={() => handleDelete(task.id)}>
+                        <button style={styles.del} onClick={() => handleDelete(task)}>
                           ✕
                         </button>
                       )}
@@ -320,6 +415,17 @@ const styles = {
   navBtn: { background: '#fff', border: '0.5px solid #FFB6C1', color: '#FFB6C1', borderRadius: 6, width: 32, height: 32, fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   weekLabel: { fontSize: 13, fontWeight: 500, color: '#555', minWidth: 180, textAlign: 'center' },
   todayBtn: { background: '#fff', border: '0.5px solid #ddd', color: '#888', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' },
+  listChipWrap: { position: 'relative', display: 'inline-block' },
+  listChip: { background: '#fff', border: '0.5px solid #FFB6C1', color: '#e07a92', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500, maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+  chipArrow: { fontSize: 8, opacity: 0.7 },
+  listMenu: { position: 'absolute', top: '110%', left: 0, background: '#fff', border: '0.5px solid #eee', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', padding: 4, zIndex: 100, minWidth: 130, maxHeight: 240, overflowY: 'auto' },
+  listMenuItem: { display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', borderRadius: 5, padding: '7px 10px', fontSize: 12, color: '#555', cursor: 'pointer', whiteSpace: 'nowrap' },
+  listMenuItemActive: { background: '#fff0f3', color: '#e07a92', fontWeight: 600 },
+  listTag: { fontSize: 9, color: '#c89aa6', flexShrink: 0, maxWidth: 50, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 3px', borderRadius: 3 },
+  tagWrap: { position: 'relative', flexShrink: 0 },
+  tagMenu: { position: 'absolute', top: '110%', right: 0, background: '#fff', border: '0.5px solid #eee', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', padding: 4, zIndex: 200, minWidth: 110, maxHeight: 200, overflowY: 'auto' },
+  tagMenuItem: { display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', borderRadius: 5, padding: '6px 9px', fontSize: 11, color: '#555', cursor: 'pointer', whiteSpace: 'nowrap' },
+  tagMenuItemActive: { background: '#fff0f3', color: '#e07a92', fontWeight: 600 },
   listSelect: { background: '#fff', border: '0.5px solid #FFB6C1', color: '#888', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer', outline: 'none', maxWidth: 140 },
   syncBtn: { background: '#fff', border: '0.5px solid #ddd', color: '#aaa', borderRadius: 6, width: 28, height: 28, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   logoutBtn: { background: '#fff', border: '0.5px solid #ddd', color: '#888', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' },
