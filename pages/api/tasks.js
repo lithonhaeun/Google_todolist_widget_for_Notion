@@ -72,7 +72,7 @@ export default async function handler(req, res) {
   const getListId = async () => {
     const r = await fetch(`${TASKS_API}/users/@me/lists`, { headers })
     const data = await r.json()
-    return data.items?.[0]?.id
+    return data
   }
 
   try {
@@ -97,7 +97,8 @@ export default async function handler(req, res) {
       endDateObj.setDate(endDateObj.getDate() + 6)
       const endDate = fromRFC3339(endDateObj.toISOString())
 
-      const url = new URL(`${TASKS_API}/lists/${listId}/tasks`)
+      for(id : listId)
+      const url = new URL(`${TASKS_API}/lists/${listId.id}/tasks`)
       url.searchParams.set('showCompleted', 'true')
       url.searchParams.set('showHidden', 'true')
       url.searchParams.set('maxResults', '100')
@@ -122,43 +123,51 @@ export default async function handler(req, res) {
     }
 
     // 할일 추가
-    if (action === 'add') {
-      const { date, title } = req.body
-      const listId = await getListId()
-      console.log('add - listId:', listId, 'date:', date, 'title:', title)
+    // 주간 할일 목록 조회
+if (action === 'list') {
+  const { weekStart } = req.body
+  const listsData = await getListId() // 수정하신 대로 data 전체를 반환한다고 가정
 
-      const r = await fetch(`${TASKS_API}/lists/${listId}/tasks`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          title,
-          due: toRFC3339(date),
-          status: 'needsAction',
-        }),
+  const startDate = weekStart
+  const endDateObj = new Date(weekStart)
+  endDateObj.setDate(endDateObj.getDate() + 6)
+  const endDate = fromRFC3339(endDateObj.toISOString())
+
+  // 1. 모든 할 일을 모아둘 빈 배열을 준비합니다.
+  let allTasks = []
+
+  // 2. 자바스크립트의 for...of 문법을 사용해 목록을 하나씩 순회합니다.
+  for (const list of listsData.items || []) {
+    const url = new URL(`${TASKS_API}/lists/${list.id}/tasks`)
+    url.searchParams.set('showCompleted', 'true')
+    url.searchParams.set('showHidden', 'true')
+    url.searchParams.set('maxResults', '100')
+
+    const r = await fetch(url.toString(), { headers })
+    const data = await r.json()
+
+    // 3. 이번 주 날짜에 맞게 필터링
+    const tasks = (data.items || [])
+      .filter((t) => {
+        if (!t.due) return false
+        const due = fromRFC3339(t.due)
+        return due >= startDate && due <= endDate
       })
-      const data = await r.json()
-      console.log('add - google response:', JSON.stringify(data))
-      if (!r.ok) {
-        return res.status(r.status).json({ error: data.error?.message || 'add 실패', detail: data })
-      }
-      return res.json({ id: data.id })
-    }
+      .map((t) => ({
+        id: t.id,
+        listId: list.id, // 🔥 핵심! 나중에 수정/삭제를 위해 목록 ID를 꼭 끼워넣어 줍니다.
+        title: t.title,
+        done: t.status === 'completed',
+        date: fromRFC3339(t.due),
+      }))
 
-    // 완료 토글
-    if (action === 'toggle') {
-      const { id, done } = req.body
-      const listId = await getListId()
+    // 4. 모아둔 배열에 방금 가져온 할 일들을 추가합니다.
+    allTasks = [...allTasks, ...tasks]
+  }
 
-      const r = await fetch(`${TASKS_API}/lists/${listId}/tasks/${id}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify({
-          status: done ? 'needsAction' : 'completed',
-        }),
-      })
-      const data = await r.json()
-      return res.json({ ok: true, status: data.status })
-    }
+  // 5. 합쳐진 전체 할 일을 반환합니다.
+  return res.json({ tasks: allTasks })
+}
 
     // 할일 삭제
     if (action === 'delete') {
