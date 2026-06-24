@@ -29,5 +29,5 @@
 input[type="checkbox"] { accent-color: #FFB6C1; cursor: pointer; }
 input[type="checkbox"]:disabled { opacity: 0.2 !important; cursor: default; }
 
-.task-row button { opacity: 0; transition: opacity 0.15s; }
-.task-row:hover button { opacity: 1; }
+.task-row .task-del { opacity: 0; transition: opacity 0.15s; }
+.task-row:hover .task-del { opacity: 1; }

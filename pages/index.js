@@ -364,7 +364,7 @@ export default function Home() {
                         </div>
                       )}
                       {task && (
-                        <button style={styles.del} onClick={() => handleDelete(task)}>
+                        <button className="task-del" style={styles.del} onClick={() => handleDelete(task)}>
                           ✕
                         </button>
                       )}
